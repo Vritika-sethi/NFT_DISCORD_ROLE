@@ -1,115 +1,191 @@
-import Image from "next/image";
-import { Geist, Geist_Mono } from "next/font/google";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+import { useEffect, useState } from "react";
+import { createWallet, inAppWallet } from "thirdweb/wallets";
+import { useActiveAccount, ConnectButton } from "thirdweb/react";
+import { CHAIN } from "@/lib/chain";
+import { thirdwebClient } from "@/lib/thirdweb";
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+type CheckResult = {
+  address: string;
+  results: { address: string; tokenId: string; label?: string; owned: boolean }[];
+  ownsAny: boolean;
+  ownsAll: boolean;
+  qualifies: boolean;
+  requireAll: boolean;
+};
+
+type UserSession = {
+  loggedIn: boolean;
+  address?: string;
+};
 
 export default function Home() {
+  const account = useActiveAccount();
+  const [status, setStatus] = useState<string>("");
+  const [check, setCheck] = useState<CheckResult | null>(null);
+  const [user, setUser] = useState<UserSession>({ loggedIn: false });
+  const [discordLinked, setDiscordLinked] = useState<boolean>(false);
+
+  const wallets = [
+    inAppWallet(),
+    createWallet("io.metamask"),
+    createWallet("com.coinbase.wallet"),
+    createWallet("me.rainbow"),
+  ];
+
+  useEffect(() => {
+   
+    fetch("/api/siwe/user").then(r => r.json()).then(setUser);
+    
+    fetch("/api/discord/status")
+      .then(r => r.json())
+      .then(data => setDiscordLinked(data.linked));
+  }, [account]); 
+  async function siwe() {
+    if (!account) return setStatus("Please connect a wallet first.");
+    setStatus("Generating challenge...");
+
+    try {
+      const res = await fetch("/api/siwe/challenge");
+      const { nonce } = await res.json();
+      if (!res.ok) throw new Error("Failed to get nonce.");
+
+      const message = `Sign in to our app to verify your NFT ownership.\n\nNonce: ${nonce}`;
+      const signature = await account.signMessage({ message });
+
+      setStatus("Verifying signature...");
+      const verifyRes = await fetch("/api/siwe/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: account.address, signature, message }),
+      });
+
+      if (!verifyRes.ok) {
+        const errorText = await verifyRes.text();
+        throw new Error(`Verification failed: ${errorText}`);
+      }
+
+      setStatus("Successfully logged in!");
+      const updatedUser = await fetch("/api/siwe/user").then(r => r.json());
+      setUser(updatedUser);
+    } catch (err: any) {
+      setStatus(`Error: ${err.message}`);
+    }
+  }
+
+  
+  async function checkNFTs() {
+    setStatus("Checking NFT ownership...");
+    setCheck(null);
+    try {
+      const res = await fetch("/api/check-nfts");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to check NFTs.");
+      setCheck(data);
+      setStatus("Check complete.");
+    } catch (err: any) {
+      setStatus(`Error: ${err.message}`);
+    }
+  }
+
+  async function grantRole() {
+    setStatus("Granting Discord role...");
+    try {
+      const res = await fetch("/api/discord/add-role", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to grant role.");
+      }
+      setStatus("🎉 Role granted successfully! Please check your Discord server.");
+    } catch (err: any) {
+      setStatus(`Error: ${err.message}`);
+    }
+  }
+
   return (
-    <div
-      className={`${geistSans.className} ${geistMono.className} font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20`}
-    >
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/pages/index.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+    <main className="flex flex-col items-center justify-center min-h-screen p-8 bg-gray-900 text-white">
+      <div className="w-full max-w-2xl p-8 space-y-6 bg-gray-800 rounded-lg shadow-lg">
+        <h1 className="text-3xl font-bold text-center">NFT Discord Role Gate</h1>
+        
+        <div className="flex flex-col items-center space-y-4">
+         
+          <div className="w-full p-4 border border-gray-600 rounded-lg">
+            <h2 className="text-xl font-semibold">Step 1: Connect Your Wallet</h2>
+            <p className="text-gray-400 mb-4">Connect the wallet that holds your NFT.</p>
+            <ConnectButton
+              client={thirdwebClient}
+              wallets={wallets}
+              chain={CHAIN}
+              theme={"dark"}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+          </div>
+
+         
+          {account && (
+            <div className="w-full p-4 border border-gray-600 rounded-lg">
+              <h2 className="text-xl font-semibold">Step 2: Sign In with Ethereum</h2>
+              <p className="text-gray-400 mb-4">Verify ownership of your wallet by signing a message.</p>
+              {!user.loggedIn ? (
+                <button onClick={siwe} className="w-full px-4 py-2 font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-500" disabled={!account}>
+                  Sign In
+                </button>
+              ) : (
+                <p className="text-green-400">✅ You are signed in as: {user.address}</p>
+              )}
+            </div>
+          )}
+
+          
+          {user.loggedIn && (
+            <div className="w-full p-4 border border-gray-600 rounded-lg">
+              <h2 className="text-xl font-semibold">Step 3: Link Your Discord Account</h2>
+              <p className="text-gray-400 mb-4">Authorize the bot to check your server membership.</p>
+              {!discordLinked ? (
+                <a href="/api/discord/login" className="block w-full px-4 py-2 font-bold text-center text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">
+                  Link Discord
+                </a>
+              ) : (
+                <p className="text-green-400">✅ Discord account is linked.</p>
+              )}
+            </div>
+          )}
+
+          
+          {user.loggedIn && discordLinked && (
+            <div className="w-full p-4 border border-gray-600 rounded-lg">
+              <h2 className="text-xl font-semibold">Step 4: Verify & Get Role</h2>
+              <p className="text-gray-400 mb-4">Check if you own the required NFT(s) to receive your special role.</p>
+              <button onClick={checkNFTs} className="w-full px-4 py-2 font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700">
+                Check My NFTs
+              </button>
+            </div>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+       
+        {status && <p className="text-center text-gray-300 mt-4">{status}</p>}
+
+        {check && (
+          <div className="w-full p-4 mt-6 bg-gray-700 rounded-lg">
+            <h3 className="text-lg font-semibold">Verification Results for {check.address}</h3>
+            <ul className="list-disc list-inside mt-2">
+              {check.results.map((r, i) => (
+                <li key={i}>
+                  {r.label ?? `${r.address.slice(0, 6)}...#${r.tokenId}`} — {r.owned ? "✅ Owned" : "❌ Not Owned"}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4">
+              Requires {check.requireAll ? "ALL" : "ANY"} — Qualifies: {check.qualifies ? "✅ Yes" : "❌ No"}
+            </p>
+            {check.qualifies && (
+              <button onClick={grantRole} className="w-full mt-4 px-4 py-2 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700">
+                Get Role!
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
