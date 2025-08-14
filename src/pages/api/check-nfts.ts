@@ -29,23 +29,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           address: nft.address,
           abi: ERC721_ABI,
         });
-
+    
         try {
-          
-          const owner = await readContract({
+          const balance = await readContract({
             contract,
-            method: "ownerOf",
-            params: [BigInt(nft.tokenId)], 
+            method: "balanceOf",
+            params: [address],
           });
-          
-          return { ...nft, owned: owner?.toLowerCase() === address };
+    
+          return { ...nft, owned: Number(balance) > 0 };
         } catch (err) {
-         
           console.error(`Error checking NFT ${nft.label}:`, err);
           return { ...nft, owned: false };
         }
       })
     );
+    
 
     const ownsAny = results.some((r) => r.owned);
     const ownsAll = results.every((r) => r.owned);
