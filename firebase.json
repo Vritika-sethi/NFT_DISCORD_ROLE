@@ -1,0 +1,17 @@
+{
+  "hosting": {
+    "site": "rb-nft-discord-role",
+   "public": "out",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

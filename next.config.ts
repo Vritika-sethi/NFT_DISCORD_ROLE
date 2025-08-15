@@ -1,8 +1,12 @@
-import type { NextConfig } from "next";
+const withTM = require("next-transpile-modules")([
+  "@magic-ext/oauth"
+]);
 
-const nextConfig: NextConfig = {
-  /* config options here */
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: true,
+  
+  images: { unoptimized: true },
 };
 
-export default nextConfig;
+module.exports = withTM(nextConfig);
